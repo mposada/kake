@@ -6,9 +6,15 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.distinctUntilChanged
 import androidx.lifecycle.viewModelScope
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
+import com.mposadar.kake.cats.data.CatPagingSource
+import com.mposadar.kake.cats.domain.Cat
 import com.mposadar.kake.cats.domain.FetchCatsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
 
 @HiltViewModel
@@ -17,10 +23,16 @@ class CatsViewModel
     constructor(
         private val fetchCatsUseCase: FetchCatsUseCase,
     ) : ViewModel() {
+        val pagedCats: Flow<PagingData<Cat>> =
+            Pager(
+                config = PagingConfig(pageSize = 10, initialLoadSize = 10, enablePlaceholders = false),
+                pagingSourceFactory = { CatPagingSource(fetchCatsUseCase) },
+            ).flow.cachedIn(viewModelScope)
+
         private val state: MutableLiveData<CatsState> = MutableLiveData()
 
         init {
-            fetchState()
+            state.value = CatsState.ViewLoaded(viewItem = CatViewItem(showGrid = false))
         }
 
         fun getState(): LiveData<CatsState> =
@@ -35,45 +47,10 @@ class CatsViewModel
             if (currentState is CatsState.ViewLoaded) {
                 state.value =
                     currentState.copy(
-                        viewItem = currentState.viewItem.copy(showGrid = !currentState.viewItem.showGrid),
+                        viewItem = currentState.viewItem.copy(
+                            showGrid = !currentState.viewItem.showGrid
+                        ),
                     )
-            }
-        }
-
-        fun fetchMoreCats() {
-            (state.value as CatsState.ViewLoaded).let {
-                if (it.isLoading) return
-                state.value = it.copy(isLoading = true)
-
-                viewModelScope.launch {
-                    fetchCats(
-                        limit = it.currentLimit + 10,
-                        skip = it.currentLimit
-                    )
-                }
-            }
-        }
-
-        private fun fetchState() {
-            viewModelScope.launch { fetchCats() }
-        }
-
-        private suspend fun fetchCats(
-            limit: Int = 10,
-            skip: Int = 0,
-        ) {
-            val result = fetchCatsUseCase.invoke(limit, skip)
-            result.onSuccess { cats ->
-                state.value =
-                    CatsState.ViewLoaded(
-                        currentLimit = limit,
-                        currentSkip = skip,
-                        isLoading = false,
-                        viewItem = CatViewItem(cats = cats),
-                    )
-            }
-            result.onFailure { error ->
-                // TODO : handle error
             }
         }
     }
